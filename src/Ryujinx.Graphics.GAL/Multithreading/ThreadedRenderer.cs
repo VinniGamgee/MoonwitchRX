@@ -168,12 +168,21 @@ namespace Ryujinx.Graphics.GAL.Multithreading
 
         internal unsafe T* New<T>() where T : unmanaged, IGALCommand
         {
+            int queueWaitSpins = 0;
             while (_producerPtr == (Volatile.Read(ref _consumerPtr) + QueueCount - 1) % QueueCount)
             {
                 // If incrementing the producer pointer would overflow, we need to wait.
                 // _consumerPtr can only move forward, so there's no race to worry about here.
 
-                Thread.Sleep(1);
+                if (queueWaitSpins++ < 64)
+                {
+                    Thread.SpinWait(64);
+                }
+                else
+                {
+                    Thread.Yield();
+                    queueWaitSpins = 0;
+                }
             }
 
             int taken = _producerPtr;
