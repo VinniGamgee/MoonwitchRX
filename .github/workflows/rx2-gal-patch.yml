@@ -2,9 +2,10 @@ name: Apply RX2 GAL Low Latency
 
 on:
   push:
-    branches: [ rx2/perf-migration ]
+    branches:
+      - rx2/perf-migration
     paths:
-      - '.github/workflows/rx2-gal-patch.yml'
+      - .github/workflows/rx2-gal-patch.yml
   workflow_dispatch:
 
 permissions:
@@ -25,43 +26,25 @@ jobs:
           python3 <<'PY'
           from pathlib import Path
 
-          p = Path('src/Ryujinx.Graphics.GAL/Multithreading/ThreadedRenderer.cs')
+          p = Path("src/Ryujinx.Graphics.GAL/Multithreading/ThreadedRenderer.cs")
           s = p.read_text()
-          old = '''            while (_producerPtr == (Volatile.Read(ref _consumerPtr) + QueueCount - 1) % QueueCount)
-            {
-                // If incrementing the producer pointer would overflow, we need to wait.
-                // _consumerPtr can only move forward, so there's no race to worry about here.
 
-                Thread.Sleep(1);
-            }
-'''
-          new = '''            int queueWaitSpins = 0;
-            while (_producerPtr == (Volatile.Read(ref _consumerPtr) + QueueCount - 1) % QueueCount)
-            {
-                // RX2: This is a hot producer/consumer hand-off. Thread.Sleep(1) can
-                // oversleep by multiple milliseconds on Android and stall command submission.
-                // Briefly spin, then yield the remainder of the timeslice without a 1 ms sleep.
-                if (queueWaitSpins++ < 64)
-                {
-                    Thread.SpinWait(64);
-                }
-                else
-                {
-                    Thread.Yield();
-                    queueWaitSpins = 0;
-                }
-            }
-'''
+          loop = "            while (_producerPtr == (Volatile.Read(ref _consumerPtr) + QueueCount - 1) % QueueCount)"
+          if loop not in s:
+              raise SystemExit("ThreadedRenderer queue loop not found")
+          s = s.replace(loop, "            int queueWaitSpins = 0;\n" + loop, 1)
+
+          old = "                Thread.Sleep(1);"
+          new = "                if (queueWaitSpins++ < 64)\n                {\n                    Thread.SpinWait(64);\n                }\n                else\n                {\n                    Thread.Yield();\n                    queueWaitSpins = 0;\n                }"
           if old not in s:
-              raise SystemExit('ThreadedRenderer queue wait pattern not found')
+              raise SystemExit("ThreadedRenderer sleep not found")
           p.write_text(s.replace(old, new, 1))
 
-          g = Path('src/KenjinxAndroid/app/build.gradle')
+          g = Path("src/KenjinxAndroid/app/build.gradle")
           s = g.read_text()
           if "versionName '2.1.0-pr.2-rx1'" not in s:
-              raise SystemExit('RX1 version string not found')
-          s = s.replace("versionName '2.1.0-pr.2-rx1'", "versionName '2.1.0-pr.2-rx2-gal'", 1)
-          g.write_text(s)
+              raise SystemExit("RX1 version string not found")
+          g.write_text(s.replace("versionName '2.1.0-pr.2-rx1'", "versionName '2.1.0-pr.2-rx2-gal'", 1))
           PY
 
       - name: Commit RX2
