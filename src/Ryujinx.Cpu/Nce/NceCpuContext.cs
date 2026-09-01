@@ -10,6 +10,9 @@ namespace Ryujinx.Cpu.Nce
 {
     class NceCpuContext : ICpuContext
     {
+        [DllImport("libkenjinxjni", EntryPoint = "setPerformanceThread")]
+        private static extern void SetPerformanceThread();
+
         private static uint[] _getTpidrEl0Code = new uint[]
         {
             GetMrsTpidrEl0(0), // mrs x0, tpidr_el0
@@ -110,6 +113,11 @@ namespace Ryujinx.Cpu.Nce
         /// <inheritdoc/>
         public void Execute(IExecutionContext context, ulong address)
         {
+            if (OperatingSystem.IsAndroid())
+            {
+                SetPerformanceThread();
+            }
+
             NceExecutionContext nec = (NceExecutionContext)context;
             NceNativeInterface.RegisterThread(nec, _tickSource);
             int tableIndex = NceThreadTable.Register(_getTpidrEl0(), nec.NativeContextPtr);

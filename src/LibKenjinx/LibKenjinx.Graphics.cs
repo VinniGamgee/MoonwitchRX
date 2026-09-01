@@ -25,6 +25,9 @@ namespace LibKenjinx
         private static ManualResetEvent? _gpuDoneEvent;
         private static bool _enableGraphicsLogging;
 
+        [DllImport("libkenjinxjni", EntryPoint = "setPerformanceThread")]
+        private static extern void SetPerformanceThread();
+
         public delegate void SwapBuffersCallback();
         public delegate nint GetProcAddress(string name);
         public delegate nint CreateSurface(nint instance);
@@ -105,6 +108,11 @@ namespace LibKenjinx
 
             var device = SwitchDevice.EmulationContext!;
             _gpuDoneEvent = new ManualResetEvent(true);
+
+            if (PlatformInfo.IsBionic)
+            {
+                SetPerformanceThread();
+            }
 
             device.Gpu.Renderer.Initialize(_enableGraphicsLogging ? GraphicsDebugLevel.All : GraphicsDebugLevel.None);
 
