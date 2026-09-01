@@ -1,0 +1,7 @@
+<linker>
+    <assembly fullname="Ryujinx.HLE" preserve="all"/>
+    <assembly fullname="System.Management">
+        <type fullname="System.Management.MTAHelper*" preserve="all"/>
+        <type fullname="System.Management.WmiNetUtilsHelper*" preserve="all"/>
+    </assembly>
+</linker>

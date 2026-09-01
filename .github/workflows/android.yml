@@ -1,0 +1,83 @@
+name: Build Moonwitch RX Android
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/android.yml'
+      - 'src/**'
+      - 'Directory.*'
+      - 'global.json'
+      - 'nuget.config'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: moonwitchrx-android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Android ARMv8.2-A release
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Set up .NET 9
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android build dependencies
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager \
+            'platforms;android-36' \
+            'build-tools;36.0.0' \
+            'ndk;28.2.13676358' \
+            'cmake;4.2.3'
+
+      - name: Configure NativeAOT LLVM toolchain
+        shell: bash
+        run: |
+          echo "org.kenjinx.llvm.toolchain.path=$ANDROID_SDK_ROOT/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin" >> src/KenjinxAndroid/gradle.properties
+
+      - name: Build Moonwitch RX
+        working-directory: src/KenjinxAndroid
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon --stacktrace assembleArmv82Release
+
+      - name: Prepare APK
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp src/KenjinxAndroid/app/build/outputs/apk/armv82/release/app-armv82-release.apk \
+            dist/MoonwitchRX-2.1.0-pr2-rx1-armv82.apk
+          sha256sum dist/*.apk > dist/SHA256SUMS.txt
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: MoonwitchRX-Android-rx1
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 30

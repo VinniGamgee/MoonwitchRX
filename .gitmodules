@@ -1,0 +1,9 @@
+[submodule "src/KenjinxAndroid/app/src/main/cpp/libraries/adrenotools"]
+	path = src/KenjinxAndroid/app/src/main/cpp/libraries/adrenotools
+	url = https://git.ryujinx.app/kenji-nx/libadrenotools.git
+[submodule "src/KenjinxAndroid/app/src/main/cpp/libraries/openal"]
+	path = src/KenjinxAndroid/app/src/main/cpp/libraries/openal
+	url = https://git.ryujinx.app/kenji-nx/openal-soft.git
+[submodule "src/KenjinxAndroid/app/src/main/cpp/libraries/adrenotools/lib/linkernsbypass"]
+	path = src/KenjinxAndroid/app/src/main/cpp/libraries/adrenotools/lib/linkernsbypass
+	url = https://git.ryujinx.app/kenji-nx/liblinkernsbypass.git

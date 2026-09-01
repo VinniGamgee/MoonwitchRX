@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Ryujinx.Common\Ryujinx.Common.csproj" />
+    <ProjectReference Include="..\Spv.Generator\Spv.Generator.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="CodeGen\Glsl\HelperFunctions\MultiplyHighS32.glsl" />
+    <EmbeddedResource Include="CodeGen\Glsl\HelperFunctions\MultiplyHighU32.glsl" />
+    <EmbeddedResource Include="CodeGen\Glsl\HelperFunctions\SwizzleAdd.glsl" />
+  </ItemGroup>
+
+</Project>

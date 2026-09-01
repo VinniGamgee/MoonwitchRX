@@ -1,0 +1,16 @@
+using NUnit.Framework;
+using NUnit.Framework.Legacy;
+using Ryujinx.Audio.Renderer.Server.Voice;
+using System.Runtime.CompilerServices;
+
+namespace Ryujinx.Tests.Audio.Renderer.Server
+{
+    class WaveBufferTests
+    {
+        [Test]
+        public void EnsureTypeSize()
+        {
+            ClassicAssert.AreEqual(0x58, Unsafe.SizeOf<WaveBuffer>());
+        }
+    }
+}

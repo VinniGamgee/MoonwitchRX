@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- Dummy definition that contains no Android items.
+         The real Android flags come in values-v21/styles.xml -->
+    <style name="Theme.KenjinxAndroid.Transparent" parent="Theme.Material3.DayNight.NoActionBar"/>
+</resources>

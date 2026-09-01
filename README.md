@@ -4,7 +4,8 @@ Moonwitch RX is an independent Android performance fork of Kenji-NX, currently
 focused on reducing CPU and lifecycle overhead on ARMv8.2-A devices such as the
 Poco F5. The first test target is *The Legend of Zelda: Tears of the Kingdom*.
 
-The project retains the complete upstream history, MIT license, and credits.
+The project retains the upstream source, MIT license, and credits. The initial
+snapshot is based on commit `6c1c05dc5d2d17a65263d878a0ed0ea9fb00f202`.
 See [CHANGELOG_MOONWITCHRX.md](CHANGELOG_MOONWITCHRX.md) for fork-specific work.
 
 ## Upstream project
