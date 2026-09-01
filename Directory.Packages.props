@@ -51,6 +51,6 @@
     <PackageVersion Include="System.IO.Hashing" Version="9.0.12" />
     <PackageVersion Include="System.Management" Version="9.0.12" />
     <PackageVersion Include="UnicornEngine.Unicorn" Version="2.1.4-a40db6c" />
-    <PackageVersion Include="Rxmxnx.PInvoke.Extensions" Version="2.8.5" />
+    <PackageVersion Include="Rxmxnx.PInvoke.Extensions" Version="3.0.1" />
   </ItemGroup>
 </Project>
