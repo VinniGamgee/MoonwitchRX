@@ -1,0 +1,32 @@
+name: RX9 NCE Fast Lookup Patch
+
+on:
+  push:
+    branches:
+      - rx9/nce-fastlookup
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply RX9 patch
+        run: python3 .github/scripts/apply_rx9_nce_fastlookup.py
+
+      - name: Commit RX9 patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/Ryujinx.Cpu/Nce/NcePatcher.cs src/KenjinxAndroid/app/build.gradle
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git commit -m "RX9: accelerate NCE thread context lookup"
+          git push
