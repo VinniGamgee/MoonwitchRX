@@ -1,3 +1,4 @@
+using Ryujinx.Common;
 using Ryujinx.Common.Logging;
 using System;
 using System.Diagnostics;
@@ -7,11 +8,11 @@ namespace Ryujinx.Graphics.Vulkan
 {
     internal class AutoFlushCounter
     {
-        // How often to flush on framebuffer change.
-        private readonly static long _framebufferFlushTimer = Stopwatch.Frequency / 1000; // (1ms)
-
-        // How often to flush on draw when fast flush mode is enabled.
-        private readonly static long _drawFlushTimer = Stopwatch.Frequency / 666; // (1.5ms)
+        // Desktop values are kept unchanged. On Android tilers we batch a little longer to
+        // avoid fragmenting long frames into a large number of tiny queue submissions.
+        private readonly long _framebufferFlushTimer;
+        private readonly long _drawFlushTimer;
+        private readonly int _minDrawCountForFlush;
 
         // Average wait time that triggers fast flush mode to be entered.
         private readonly static long _fastFlushEnterThreshold = Stopwatch.Frequency / 666; // (1.5ms)
@@ -22,7 +23,6 @@ namespace Ryujinx.Graphics.Vulkan
         // Number of frames to average waiting times over.
         private const int SyncWaitAverageCount = 20;
 
-        private const int MinDrawCountForFlush = 10;
         private const int MinConsecutiveQueryForFlush = 10;
         private const int InitialQueryCountForFlush = 32;
 
@@ -46,6 +46,21 @@ namespace Ryujinx.Graphics.Vulkan
         public AutoFlushCounter(VulkanRenderer gd)
         {
             _gd = gd;
+
+            if (PlatformInfo.IsBionic)
+            {
+                // RX4 Android batching: preserve fast-flush synchronization semantics, but
+                // submit larger command batches. This is tuned for long mobile frame times.
+                _framebufferFlushTimer = Stopwatch.Frequency / 500; // 2ms
+                _drawFlushTimer = Stopwatch.Frequency / 333; // ~3ms
+                _minDrawCountForFlush = 20;
+            }
+            else
+            {
+                _framebufferFlushTimer = Stopwatch.Frequency / 1000; // 1ms
+                _drawFlushTimer = Stopwatch.Frequency / 666; // 1.5ms
+                _minDrawCountForFlush = 10;
+            }
         }
 
         public void RegisterFlush(ulong drawCount)
@@ -100,7 +115,7 @@ namespace Ryujinx.Graphics.Vulkan
             {
                 long draws = (long)(drawCount - _lastDrawCount);
 
-                if (draws < MinDrawCountForFlush)
+                if (draws < _minDrawCountForFlush)
                 {
                     if (draws == 0)
                     {
@@ -110,11 +125,9 @@ namespace Ryujinx.Graphics.Vulkan
                     return false;
                 }
 
-                long flushTimeout = _drawFlushTimer;
-
                 long now = Stopwatch.GetTimestamp();
 
-                return now > _lastFlush + flushTimeout;
+                return now > _lastFlush + _drawFlushTimer;
             }
 
             return false;
@@ -134,7 +147,7 @@ namespace Ryujinx.Graphics.Vulkan
 
             long draws = (long)(drawCount - _lastDrawCount);
 
-            if (draws < MinDrawCountForFlush)
+            if (draws < _minDrawCountForFlush)
             {
                 if (draws == 0)
                 {
@@ -144,11 +157,9 @@ namespace Ryujinx.Graphics.Vulkan
                 return false;
             }
 
-            long flushTimeout = _framebufferFlushTimer;
-
             long now = Stopwatch.GetTimestamp();
 
-            return now > _lastFlush + flushTimeout;
+            return now > _lastFlush + _framebufferFlushTimer;
         }
 
         public void Present()
