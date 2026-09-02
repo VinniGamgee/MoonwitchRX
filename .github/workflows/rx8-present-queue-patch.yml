@@ -1,0 +1,33 @@
+name: RX8 Present Queue Patch
+
+on:
+  push:
+    branches:
+      - rx8/present-queue
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.head_commit.message != 'RX8: use Android background present queue'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply RX8 patch
+        run: python3 .github/scripts/apply_rx8_present_queue.py
+
+      - name: Commit RX8 patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/Ryujinx.Graphics.Vulkan/Window.cs src/KenjinxAndroid/app/build.gradle
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git commit -m "RX8: use Android background present queue"
+          git push
