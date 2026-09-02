@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Threading;
 
 namespace Ryujinx.Graphics.Vulkan
 {
@@ -30,11 +31,85 @@ namespace Ryujinx.Graphics.Vulkan
         private ulong _flushId;
         private long _waitTicks;
 
+        // RX7 diagnostics are deliberately separate from _waitTicks because AutoFlushCounter
+        // consumes and resets that value every present. These counters are only used for a
+        // rate-limited summary and do not change synchronization behavior.
+        private long _diagWaitCalls;
+        private long _diagWaitTicks;
+        private long _diagMaxWaitTicks;
+        private long _diagForcedFlushes;
+        private long _diagTimeouts;
+        private long _diagLastLogTicks;
+
         public SyncManager(VulkanRenderer gd, Device device)
         {
             _gd = gd;
             _device = device;
             _handles = [];
+            _diagLastLogTicks = Stopwatch.GetTimestamp();
+        }
+
+        private static void UpdateMax(ref long target, long value)
+        {
+            long current = Volatile.Read(ref target);
+
+            while (value > current)
+            {
+                long observed = Interlocked.CompareExchange(ref target, value, current);
+                if (observed == current)
+                {
+                    break;
+                }
+
+                current = observed;
+            }
+        }
+
+        private void RecordWait(long elapsedTicks, bool timedOut)
+        {
+            long calls = Interlocked.Increment(ref _diagWaitCalls);
+            Interlocked.Add(ref _diagWaitTicks, elapsedTicks);
+            UpdateMax(ref _diagMaxWaitTicks, elapsedTicks);
+
+            if (timedOut)
+            {
+                Interlocked.Increment(ref _diagTimeouts);
+            }
+
+            // Avoid checking/logging on every hot-path wait. At most one check per 64 waits,
+            // and summaries are further limited to roughly once every 2 seconds.
+            if ((calls & 63) != 0)
+            {
+                return;
+            }
+
+            long now = Stopwatch.GetTimestamp();
+            long previousLog = Volatile.Read(ref _diagLastLogTicks);
+
+            if (now - previousLog < Stopwatch.Frequency * 2 ||
+                Interlocked.CompareExchange(ref _diagLastLogTicks, now, previousLog) != previousLog)
+            {
+                return;
+            }
+
+            long windowCalls = Interlocked.Exchange(ref _diagWaitCalls, 0);
+            long windowTicks = Interlocked.Exchange(ref _diagWaitTicks, 0);
+            long maxTicks = Interlocked.Exchange(ref _diagMaxWaitTicks, 0);
+            long forcedFlushes = Interlocked.Exchange(ref _diagForcedFlushes, 0);
+            long timeouts = Interlocked.Exchange(ref _diagTimeouts, 0);
+
+            if (windowCalls == 0)
+            {
+                return;
+            }
+
+            double totalMs = windowTicks * 1000.0 / Stopwatch.Frequency;
+            double avgMs = totalMs / windowCalls;
+            double maxMs = maxTicks * 1000.0 / Stopwatch.Frequency;
+
+            Logger.Info?.PrintMsg(
+                LogClass.Gpu,
+                $"RX7DIAG VKWAIT calls={windowCalls} total={totalMs:F2}ms avg={avgMs:F3}ms max={maxMs:F2}ms forcedFlush={forcedFlushes} timeout={timeouts}");
         }
 
         public void RegisterFlush()
@@ -139,6 +214,7 @@ namespace Ryujinx.Graphics.Vulkan
                     {
                         if (result.NeedsFlush(_flushId))
                         {
+                            Interlocked.Increment(ref _diagForcedFlushes);
                             _gd.FlushAllCommands();
                         }
                     });
@@ -151,7 +227,14 @@ namespace Ryujinx.Graphics.Vulkan
                         return;
                     }
 
-                    bool signaled = result.Signalled || result.Waitable.WaitForFences(_gd.Api, _device, 1000000000);
+                    bool alreadySignalled = result.Signalled;
+                    bool signaled = alreadySignalled || result.Waitable.WaitForFences(_gd.Api, _device, 1000000000);
+                    long elapsedTicks = Stopwatch.GetTimestamp() - beforeTicks;
+
+                    if (!alreadySignalled)
+                    {
+                        RecordWait(elapsedTicks, !signaled);
+                    }
 
                     if (!signaled)
                     {
@@ -159,7 +242,7 @@ namespace Ryujinx.Graphics.Vulkan
                     }
                     else
                     {
-                        _waitTicks += Stopwatch.GetTimestamp() - beforeTicks;
+                        _waitTicks += elapsedTicks;
                         result.Signalled = true;
                     }
                 }
