@@ -49,11 +49,12 @@ namespace Ryujinx.Graphics.Vulkan
 
             if (PlatformInfo.IsBionic)
             {
-                // RX4 Android batching: preserve fast-flush synchronization semantics, but
-                // submit larger command batches. This is tuned for long mobile frame times.
-                _framebufferFlushTimer = Stopwatch.Frequency / 500; // 2ms
-                _drawFlushTimer = Stopwatch.Frequency / 333; // ~3ms
-                _minDrawCountForFlush = 20;
+                // RX5 Android batching: continue the RX4 direction with moderately larger
+                // command batches. Synchronization semantics remain unchanged; only the
+                // periodic submission cadence is relaxed for long mobile frames.
+                _framebufferFlushTimer = Stopwatch.Frequency / 333; // ~3ms
+                _drawFlushTimer = Stopwatch.Frequency / 222; // ~4.5ms
+                _minDrawCountForFlush = 28;
             }
             else
             {
