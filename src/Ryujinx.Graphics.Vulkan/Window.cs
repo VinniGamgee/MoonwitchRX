@@ -1,9 +1,11 @@
 using Ryujinx.Common;
+using Ryujinx.Common.Logging;
 using Ryujinx.Graphics.GAL;
 using Ryujinx.Graphics.Vulkan.Effects;
 using Silk.NET.Vulkan;
 using Silk.NET.Vulkan.Extensions.KHR;
 using System;
+using System.Diagnostics;
 using VkFormat = Silk.NET.Vulkan.Format;
 using System.Linq;
 
@@ -27,6 +29,15 @@ namespace Ryujinx.Graphics.Vulkan
         private Semaphore[] _renderFinishedSemaphores;
 
         private int _frameIndex;
+
+        // RX8 Android present-path telemetry. Kept deliberately lightweight: one summary
+        // every 128 presented frames, with no per-frame logging.
+        private int _rx8PresentSamples;
+        private long _rx8AcquireTicks;
+        private long _rx8PresentTicks;
+        private long _rx8MaxAcquireTicks;
+        private long _rx8MaxPresentTicks;
+        private bool? _rx8BackgroundPresentQueue;
 
         private int _width;
         private int _height;
@@ -449,6 +460,7 @@ namespace Ryujinx.Graphics.Vulkan
 
             while (true)
             {
+                long acquireStart = Stopwatch.GetTimestamp();
                 var acquireResult = _gd.SwapchainApi.AcquireNextImage(
                     _device,
                     _swapchain,
@@ -456,6 +468,12 @@ namespace Ryujinx.Graphics.Vulkan
                     _imageAvailableSemaphores[semaphoreIndex],
                     new Fence(),
                     ref nextImage);
+                long acquireTicks = Stopwatch.GetTimestamp() - acquireStart;
+                _rx8AcquireTicks += acquireTicks;
+                if (acquireTicks > _rx8MaxAcquireTicks)
+                {
+                    _rx8MaxAcquireTicks = acquireTicks;
+                }
 
                 if (acquireResult == Result.ErrorOutOfDateKhr ||
                     acquireResult == Result.SuboptimalKhr ||
@@ -647,12 +665,41 @@ namespace Ryujinx.Graphics.Vulkan
             var signalSems = new Silk.NET.Vulkan.Semaphore[] { _renderFinishedSemaphores[semaphoreIndex] };
             _gd.CommandBufferPool.Return(cbs, waitSems, waitStages, signalSems);
 
-            PresentOne(_gd, _renderFinishedSemaphores[semaphoreIndex], _swapchain, nextImage);
+            long presentStart = Stopwatch.GetTimestamp();
+            bool backgroundPresent = PresentOne(_gd, _renderFinishedSemaphores[semaphoreIndex], _swapchain, nextImage);
+            long presentTicks = Stopwatch.GetTimestamp() - presentStart;
+
+            _rx8PresentTicks += presentTicks;
+            if (presentTicks > _rx8MaxPresentTicks)
+            {
+                _rx8MaxPresentTicks = presentTicks;
+            }
+
+            _rx8BackgroundPresentQueue ??= backgroundPresent;
+
+            if (++_rx8PresentSamples >= 128)
+            {
+                double tickToMs = 1000.0 / Stopwatch.Frequency;
+                double acquireTotalMs = _rx8AcquireTicks * tickToMs;
+                double presentTotalMs = _rx8PresentTicks * tickToMs;
+                double acquireAvgMs = acquireTotalMs / _rx8PresentSamples;
+                double presentAvgMs = presentTotalMs / _rx8PresentSamples;
+
+                Logger.Info?.PrintMsg(
+                    LogClass.Gpu,
+                    $"RX8DIAG PRESENT frames={_rx8PresentSamples} acquireTotal={acquireTotalMs:F2}ms acquireAvg={acquireAvgMs:F3}ms acquireMax={_rx8MaxAcquireTicks * tickToMs:F2}ms presentTotal={presentTotalMs:F2}ms presentAvg={presentAvgMs:F3}ms presentMax={_rx8MaxPresentTicks * tickToMs:F2}ms bgQueue={_rx8BackgroundPresentQueue}");
+
+                _rx8PresentSamples = 0;
+                _rx8AcquireTicks = 0;
+                _rx8PresentTicks = 0;
+                _rx8MaxAcquireTicks = 0;
+                _rx8MaxPresentTicks = 0;
+            }
 
             swapBuffersCallback?.Invoke();
         }
 
-        private static unsafe void PresentOne(
+        private static unsafe bool PresentOne(
             VulkanRenderer gd,
             Silk.NET.Vulkan.Semaphore signal,
             SwapchainKHR swapchain,
@@ -677,10 +724,20 @@ namespace Ryujinx.Graphics.Vulkan
                 PResults = null
             };
 
-            lock (gd.QueueLock)
+            // RX8: on Android, use the second queue when the selected present-capable
+            // queue family exposes one. Present support is a queue-family capability,
+            // so queue #1 can safely present while queue #0 remains the main submit queue.
+            // Cross-queue ordering is preserved by the existing render-finished semaphore.
+            bool useBackgroundQueue = PlatformInfo.IsBionic && gd.BackgroundQueue.Handle != 0;
+            var presentQueue = useBackgroundQueue ? gd.BackgroundQueue : gd.Queue;
+            var presentQueueLock = useBackgroundQueue ? gd.BackgroundQueueLock : gd.QueueLock;
+
+            lock (presentQueueLock)
             {
-                gd.SwapchainApi.QueuePresent(gd.Queue, in presentInfo);
+                gd.SwapchainApi.QueuePresent(presentQueue, in presentInfo);
             }
+
+            return useBackgroundQueue;
         }
 
         public override void SetAntiAliasing(AntiAliasing effect)
