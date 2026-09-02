@@ -11,6 +11,11 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
     return text.replace(old, new, 1)
 
 
+gradle = GRADLE.read_text(encoding="utf-8")
+if "versionName '2.1.0-pr.2-rx8-presentqueue'" in gradle:
+    print("RX8 present queue patch already applied")
+    raise SystemExit(0)
+
 window = WINDOW.read_text(encoding="utf-8")
 
 window = replace_once(
@@ -142,7 +147,6 @@ window = replace_once(
 
 WINDOW.write_text(window, encoding="utf-8")
 
-gradle = GRADLE.read_text(encoding="utf-8")
 gradle = replace_once(
     gradle,
     "versionName '2.1.0-pr.2-rx5-vkbatch2'",
