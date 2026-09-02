@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   patch:
-    if: github.event.head_commit.message != 'RX8: use Android background present queue'
+    if: ${{ github.event.head_commit.message != 'RX8: use Android background present queue' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
