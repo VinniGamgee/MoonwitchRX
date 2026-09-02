@@ -190,8 +190,6 @@ namespace Ryujinx.Cpu.Nce
 
         private static void WriteLoadContext(Assembler asm, Operand tmp0, Operand tmp1, Operand tmp2)
         {
-            asm.Mov(tmp0, (ulong)NceThreadTable.EntriesPointer);
-
             if (OperatingSystem.IsMacOS())
             {
                 asm.MrsTpidrroEl0(tmp1);
@@ -200,6 +198,30 @@ namespace Ryujinx.Cpu.Nce
             {
                 asm.MrsTpidrEl0(tmp1);
             }
+
+            // RX9: Try the direct-mapped NCE context cache first. The cache key is
+            // derived entirely in generated ARM64 code, avoiding a managed call and
+            // avoiding the old O(N) scan on the overwhelmingly common hit path.
+            asm.Mov(tmp0, (ulong)NceThreadTable.FastEntriesPointer);
+            asm.Mov(tmp2, tmp1);
+            asm.Eor(tmp2, tmp2, tmp2, ArmShiftType.Lsr, 17);
+            asm.Lsr(tmp2, tmp2, Const(4));
+            asm.And(tmp2, tmp2, Const((ulong)NceThreadTable.FastTableMask));
+            asm.Lsl(tmp2, tmp2, Const(4));
+            asm.Add(tmp0, tmp0, tmp2);
+            asm.LdrRiUn(tmp2, tmp0, 0);
+
+            Operand lblFallback = asm.CreateLabel();
+            Operand lblDone = asm.CreateLabel();
+
+            asm.Cmp(tmp1, tmp2);
+            asm.B(lblFallback, ArmCondition.Ne);
+            asm.LdrRiUn(tmp0, tmp0, 8);
+            asm.B(lblDone);
+
+            // Collision/miss: preserve the original behavior exactly.
+            asm.MarkLabel(lblFallback);
+            asm.Mov(tmp0, (ulong)NceThreadTable.EntriesPointer);
 
             Operand lblFound = asm.CreateLabel();
             Operand lblLoop = asm.CreateLabel();
@@ -212,16 +234,13 @@ namespace Ryujinx.Cpu.Nce
             asm.B(lblLoop);
 
             asm.MarkLabel(lblFound);
-
             asm.Ldur(tmp0, tmp0, -8);
+
+            asm.MarkLabel(lblDone);
         }
 
         private static void WriteLoadContextSafe(Assembler asm, Operand lblFail, Operand tmp0, Operand tmp1, Operand tmp2, Operand tmp3)
         {
-            asm.Mov(tmp0, (ulong)NceThreadTable.EntriesPointer);
-            asm.Ldur(tmp3, tmp0, -8);
-            asm.Add(tmp3, tmp0, tmp3, ArmShiftType.Lsl, 4);
-
             if (OperatingSystem.IsMacOS())
             {
                 asm.MrsTpidrroEl0(tmp1);
@@ -230,6 +249,30 @@ namespace Ryujinx.Cpu.Nce
             {
                 asm.MrsTpidrEl0(tmp1);
             }
+
+            // The signal/suspend-safe lookup gets the same O(1) hot cache, but on
+            // any mismatch it retains the original bounded scan and failure path.
+            asm.Mov(tmp0, (ulong)NceThreadTable.FastEntriesPointer);
+            asm.Mov(tmp2, tmp1);
+            asm.Eor(tmp2, tmp2, tmp2, ArmShiftType.Lsr, 17);
+            asm.Lsr(tmp2, tmp2, Const(4));
+            asm.And(tmp2, tmp2, Const((ulong)NceThreadTable.FastTableMask));
+            asm.Lsl(tmp2, tmp2, Const(4));
+            asm.Add(tmp0, tmp0, tmp2);
+            asm.LdrRiUn(tmp2, tmp0, 0);
+
+            Operand lblFallback = asm.CreateLabel();
+            Operand lblDone = asm.CreateLabel();
+
+            asm.Cmp(tmp1, tmp2);
+            asm.B(lblFallback, ArmCondition.Ne);
+            asm.LdrRiUn(tmp0, tmp0, 8);
+            asm.B(lblDone);
+
+            asm.MarkLabel(lblFallback);
+            asm.Mov(tmp0, (ulong)NceThreadTable.EntriesPointer);
+            asm.Ldur(tmp3, tmp0, -8);
+            asm.Add(tmp3, tmp0, tmp3, ArmShiftType.Lsl, 4);
 
             Operand lblFound = asm.CreateLabel();
             Operand lblLoop = asm.CreateLabel();
@@ -244,8 +287,9 @@ namespace Ryujinx.Cpu.Nce
             asm.B(lblLoop);
 
             asm.MarkLabel(lblFound);
-
             asm.Ldur(tmp0, tmp0, -8);
+
+            asm.MarkLabel(lblDone);
         }
 
         private static void PickScratchRegs(Span<int> scratchRegs, uint blacklistedRegMask)
