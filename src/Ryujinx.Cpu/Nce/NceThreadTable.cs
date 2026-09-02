@@ -35,12 +35,11 @@ namespace Ryujinx.Cpu.Nce
             _block = new MemoryBlock((ulong)Unsafe.SizeOf<Entry>() * MaxThreads + 8UL);
             _block.Write(0UL, 0UL);
 
-            // A direct-mapped hot cache sits in front of the original table.  With
-            // 8192 slots for at most 4096 registered threads, normal Android NCE
-            // workloads have a very low collision rate.  A collision never affects
-            // correctness: generated code falls back to the bounded linear table.
+            // MemoryBlock storage is zero-initialized, just like the existing table.
+            // The direct-mapped cache is only a hot-path accelerator: collisions
+            // always fall back to the original bounded table and cannot affect
+            // correctness.
             _fastBlock = new MemoryBlock((ulong)Unsafe.SizeOf<Entry>() * FastTableSize);
-            _fastBlock.ZeroFill(0, (ulong)Unsafe.SizeOf<Entry>() * FastTableSize);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -66,9 +65,6 @@ namespace Ryujinx.Cpu.Nce
                         entries[i] = new Entry(threadId, nativeContextPtr);
 
                         ref Entry fastEntry = ref GetFastStorage()[GetFastIndex(threadId)];
-                        // Publish the context before the key.  NCE execution starts
-                        // after registration, so this cache remains lock-free on the
-                        // generated-code read side.
                         fastEntry.NativeContextPtr = nativeContextPtr;
                         Thread.MemoryBarrier();
                         fastEntry.ThreadId = threadId;
@@ -98,8 +94,8 @@ namespace Ryujinx.Cpu.Nce
                 {
                     ref Entry fastEntry = ref GetFastStorage()[GetFastIndex(threadId)];
 
-                    // Only clear the cache slot if it still belongs to this thread.
-                    // Another colliding registration may have replaced it already.
+                    // A colliding registration may have replaced this slot. Never
+                    // clear a cache entry that now belongs to another thread.
                     if (fastEntry.ThreadId == threadId)
                     {
                         fastEntry.ThreadId = nint.Zero;
